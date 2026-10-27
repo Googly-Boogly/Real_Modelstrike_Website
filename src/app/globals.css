@@ -1,0 +1,157 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens. Dark-only by design.
+ * Contrast: fg / fg-muted / fg-subtle all pass WCAG AA on ink-950…ink-700.
+ * accent-600 sits behind white button text (AA); accent-400 / cyan-400 are for accent text on dark.
+ */
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-manrope), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  --color-ink-950: #070c18;
+  --color-ink-900: #0b1120;
+  --color-ink-800: #111c30;
+  --color-ink-700: #16233b;
+  --color-ink-600: #1c2b47;
+
+  --color-line: #1e2b45;
+  --color-line-strong: #2b3c5e;
+
+  --color-fg: #f8fafc;
+  --color-fg-muted: #a3b0c4;
+  --color-fg-subtle: #7f8ca3;
+
+  --color-accent-300: #93c5fd;
+  --color-accent-400: #60a5fa;
+  --color-accent-500: #3b82f6;
+  --color-accent-600: #2563eb;
+  --color-accent-700: #1d4ed8;
+
+  --color-cyan-300: #67e8f9;
+  --color-cyan-400: #22d3ee;
+  --color-cyan-500: #06b6d4;
+
+  --color-ok: #34d399;
+  --color-warn: #fbbf24;
+  --color-danger: #f87171;
+
+  --animate-flow: flow 2.4s linear infinite;
+  --animate-pulse-dot: pulse-dot 2s ease-in-out infinite;
+
+  @keyframes flow {
+    from { transform: translateY(-100%); }
+    to { transform: translateY(400%); }
+  }
+  @keyframes demo-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes demo-progress {
+    from { width: 0%; }
+    to { width: 100%; }
+  }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    background-color: var(--color-ink-900);
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background-color: var(--color-ink-900);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+  p { text-wrap: pretty; }
+  ::selection { background: color-mix(in oklab, var(--color-accent-500) 45%, transparent); }
+
+  :focus-visible {
+    outline: 2px solid var(--color-cyan-400);
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+
+  /* Keep anchored sections clear of the sticky header. */
+  [id] { scroll-margin-top: 6rem; }
+}
+
+@layer components {
+  /* Faint engineering grid, faded toward the edges. */
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, color-mix(in oklab, var(--color-line) 70%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in oklab, var(--color-line) 70%, transparent) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse 80% 70% at 50% 0%, #000 30%, transparent 80%);
+  }
+  .bg-dots {
+    background-image: radial-gradient(color-mix(in oklab, var(--color-line-strong) 80%, transparent) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+  /* Thin gradient hairline border for feature panels. */
+  .ring-gradient {
+    position: relative;
+    isolation: isolate;
+  }
+  .ring-gradient::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(140deg, color-mix(in oklab, var(--color-accent-400) 70%, transparent), transparent 40%, transparent 60%, color-mix(in oklab, var(--color-cyan-400) 55%, transparent));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    z-index: -1;
+  }
+  .demo-in { animation: demo-in 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+  .demo-progress { animation: demo-progress linear forwards; }
+  .text-gradient {
+    background: linear-gradient(100deg, var(--color-fg) 20%, var(--color-accent-300) 60%, var(--color-cyan-300));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+/* Gentle reveal as sections scroll into view — CSS-only, progressive enhancement. */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .reveal {
+      animation: reveal linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 22%;
+    }
+    @keyframes reveal {
+      from { opacity: 0; transform: translateY(24px); }
+      to { opacity: 1; transform: none; }
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .motion-flow { display: none; }
+}

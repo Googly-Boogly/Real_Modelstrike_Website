@@ -1,0 +1,12 @@
+# Automatic HTTPS for SITE_DOMAIN (set in .env or the shell; defaults to modelstrike.ai).
+# DNS for both the apex and www must point at this server before starting.
+
+www.{$SITE_DOMAIN} {
+	redir https://{$SITE_DOMAIN}{uri} permanent
+}
+
+{$SITE_DOMAIN} {
+	encode zstd gzip
+	# Caddy replaces any client-supplied X-Forwarded-For with the real client IP.
+	reverse_proxy web:3000
+}
