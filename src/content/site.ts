@@ -29,6 +29,7 @@ export const primaryNav: NavItem[] = [
   { label: "Industries", href: "/industries" },
   { label: "How It Works", href: "/how-it-works" },
   { label: "About", href: "/about" },
+  { label: "Live Demo", href: "/demo" },
   { label: "Contact", href: "/contact" },
 ];
 
@@ -48,6 +49,7 @@ export const footerNav: { heading: string; items: NavItem[] }[] = [
     items: [
       { label: "Industries", href: "/industries" },
       { label: "How It Works", href: "/how-it-works" },
+      { label: "Live Demo", href: "/demo" },
       { label: "About", href: "/about" },
       { label: "Contact", href: "/contact" },
     ],
