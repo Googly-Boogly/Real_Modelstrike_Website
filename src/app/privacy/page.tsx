@@ -12,7 +12,7 @@ export const metadata = pageMetadata({
 });
 
 // Update this date whenever the policy content changes.
-const LAST_UPDATED = "October 27, 2026";
+const LAST_UPDATED = "October 31, 2026";
 
 const sections: { heading: string; body: ReactNode }[] = [
   {
@@ -45,12 +45,29 @@ const sections: { heading: string; body: ReactNode }[] = [
     ),
   },
   {
+    heading: "The interactive demo",
+    body: (
+      <>
+        <p>
+          Our <Link href="/demo">demo page</Link> needs no account and no contact details. Please use fictional examples, and don&apos;t enter confidential, financial, medical, or other
+          sensitive information.
+        </p>
+        <p>
+          When you run the live demo, the text of the example is sent to our AI provider, OpenAI, to generate the results, and the results are returned to your browser. We don&apos;t
+          save the text or the results to a database, include them in our logs, send them by email, or add you to any marketing or sales list. Using the demo isn&apos;t consent to
+          marketing. Our server keeps only aggregate usage facts, such as which industry was chosen, whether a run succeeded, how long it took, and its cost.
+        </p>
+        <p>Your edits and approval choices stay in your browser and disappear when you leave the page.</p>
+      </>
+    ),
+  },
+  {
     heading: "Information collected automatically",
     body: (
       <>
         <p>
-          To protect the contact form from spam and abuse, the website temporarily uses your IP address to limit how many requests can be sent in a short period. This
-          is held in server memory only and is not stored with your submission.
+          To protect the contact form and the demo from spam and abuse, the website temporarily uses your IP address to limit how many requests can be sent in a short period.
+          This is held in server memory only and is not stored with your submission.
         </p>
         <p>
           Like most websites, our hosting infrastructure may record standard technical logs (such as IP address, browser type, and pages requested) for security and
@@ -87,6 +104,10 @@ const sections: { heading: string; body: ReactNode }[] = [
           </li>
           <li>
             <strong className="text-fg">Cal.com</strong> — scheduling, used when you book a consultation call
+          </li>
+          <li>
+            <strong className="text-fg">OpenAI</strong> — AI processing, used only for the text you submit to the live demo, which OpenAI handles under its own API terms and
+            privacy policy
           </li>
           <li>Our website hosting provider, which serves the site and may keep standard technical logs</li>
         </ul>

@@ -27,10 +27,10 @@ RUN npm run build
 FROM node:24-alpine AS run
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
-RUN addgroup -S app && adduser -S app -G app
+RUN addgroup -S app && adduser -S app -G app && mkdir -p /app/data && chown app:app /app/data
 COPY --from=build --chown=app:app /app/.next/standalone ./
 COPY --from=build --chown=app:app /app/.next/static ./.next/static
 USER app
 EXPOSE 3000
-# CONTACT_* / RESEND_API_KEY are runtime secrets: pass them with --env-file, never as build args.
+# CONTACT_* / RESEND_API_KEY / OPENAI_API_KEY are runtime secrets: pass them with --env-file, never as build args.
 CMD ["node", "server.js"]

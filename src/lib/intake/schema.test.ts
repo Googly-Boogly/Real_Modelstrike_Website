@@ -1,80 +1,80 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { analysisJsonSchema, validateAnalysis, validateIntakeEmail } from "./schema.ts";
+import { getIndustry, industries } from "./industries.ts";
+import { extractionJsonSchema, validateDraft, validateExtraction, validateIntakeRequest } from "./schema.ts";
 
-const email = {
-  fromName: "Sarah  Mitchell",
-  fromEmail: "Sarah@Example.com",
-  subject: "Air Conditioner Not Working",
-  body: "My air conditioner stopped cooling yesterday.\r\nCan someone come Wednesday?",
+const hvac = getIndustry("hvac")!;
+const valid = {
+  is_customer_inquiry: true,
+  request_type: "repair",
+  summary: "AC stopped cooling.",
+  signals: ["service_outage"],
+  fields: { customer_name: "Sarah Johnson", email: null, phone: null, service_requested: "AC Repair", problem: "Not cooling", location: "Minneapolis", preferred_time: null },
 };
 
-const analysis = {
-  isServiceRequest: true,
-  customerName: "Sarah Mitchell",
-  email: "sarah@example.com",
-  phone: "612-555-0147",
-  location: "Minneapolis",
-  serviceType: "Air Conditioning Repair",
-  problem: "AC stopped cooling",
-  preferredAppointment: "Wednesday afternoon",
-  priority: "Normal",
-  summary: "Sarah's AC stopped cooling.",
-  replySubject: "Re: Air Conditioner Not Working",
-  replyBody: "Hi Sarah,\n\nThanks for reaching out.\n\nBest regards,\nCustomer Service Team",
-};
-
-test("accepts and normalises a valid intake email", () => {
-  const r = validateIntakeEmail(email);
+test("accepts and normalises a valid request", () => {
+  const r = validateIntakeRequest({ industry: "hvac", message: "  My AC stopped cooling.\r\nCan someone help?\u0000 " });
   assert.equal(r.ok, true);
   if (r.ok) {
-    assert.equal(r.data.fromName, "Sarah Mitchell");
-    assert.equal(r.data.fromEmail, "sarah@example.com");
-    assert.equal(r.data.body, "My air conditioner stopped cooling yesterday.\nCan someone come Wednesday?");
+    assert.equal(r.data.industry.id, "hvac");
+    assert.equal(r.data.message, "My AC stopped cooling.\nCan someone help?");
   }
 });
 
-test("rejects short, oversized and malformed intake emails", () => {
-  assert.equal(validateIntakeEmail({ ...email, body: "too short" }).ok, false);
-  assert.equal(validateIntakeEmail({ ...email, body: "x".repeat(3001) }).ok, false);
-  assert.equal(validateIntakeEmail({ ...email, subject: "x".repeat(201) }).ok, false);
-  assert.equal(validateIntakeEmail({ ...email, fromEmail: "not-an-email" }).ok, false);
-  assert.equal(validateIntakeEmail({ ...email, fromName: "" }).ok, false);
-  assert.equal(validateIntakeEmail({ ...email, body: ["array"] }).ok, false);
-  assert.equal(validateIntakeEmail({}).ok, false);
+test("rejects empty, short, oversized and malformed requests", () => {
+  assert.equal(validateIntakeRequest({ industry: "hvac", message: "" }).ok, false);
+  assert.equal(validateIntakeRequest({ industry: "hvac", message: "too short" }).ok, false);
+  assert.equal(validateIntakeRequest({ industry: "hvac", message: "x".repeat(3001) }).ok, false);
+  assert.equal(validateIntakeRequest({ industry: "hvac", message: ["array"] }).ok, false);
+  assert.equal(validateIntakeRequest({ industry: "__proto__", message: "x".repeat(50) }).ok, false);
+  assert.equal(validateIntakeRequest({ message: "x".repeat(50) }).ok, false);
+  assert.equal(validateIntakeRequest(null).ok, false);
 });
 
-test("accepts a well-formed analysis", () => {
-  const r = validateAnalysis(analysis);
+test("accepts a well-formed extraction and turns placeholders into null", () => {
+  const r = validateExtraction({ ...valid, fields: { ...valid.fields, location: "Not provided", phone: "N/A", email: "  " } }, hvac);
   assert.ok(r);
-  assert.equal(r.customerName, "Sarah Mitchell");
-  assert.equal(r.replyBody.includes("\n"), true);
+  assert.equal(r.fields.customer_name, "Sarah Johnson");
+  assert.equal(r.fields.location, null);
+  assert.equal(r.fields.phone, null);
+  assert.equal(r.fields.email, null);
 });
 
-test("keeps missing fields as null and normalises placeholders to null", () => {
-  const r = validateAnalysis({ ...analysis, phone: null, location: "Not provided", preferredAppointment: "N/A", email: "  " });
+test("rejects malformed extractions", () => {
+  assert.equal(validateExtraction(null, hvac), null);
+  assert.equal(validateExtraction([], hvac), null);
+  assert.equal(validateExtraction({ ...valid, request_type: "made_up" }, hvac), null);
+  assert.equal(validateExtraction({ ...valid, is_customer_inquiry: "yes" }, hvac), null);
+  assert.equal(validateExtraction({ ...valid, signals: ["panic"] }, hvac), null);
+  assert.equal(validateExtraction({ ...valid, summary: "" }, hvac), null);
+  assert.equal(validateExtraction({ ...valid, fields: { ...valid.fields, phone: 6125550147 } }, hvac), null);
+  assert.equal(validateExtraction({ ...valid, fields: { ...valid.fields, problem: "x".repeat(201) } }, hvac), null);
+  const incomplete: Record<string, unknown> = { ...valid.fields };
+  delete incomplete.location;
+  assert.equal(validateExtraction({ ...valid, fields: incomplete }, hvac), null);
+});
+
+test("ignores extra keys rather than passing them through", () => {
+  const r = validateExtraction({ ...valid, secret: "x", fields: { ...valid.fields, secret: "x" } }, hvac);
   assert.ok(r);
-  assert.equal(r.phone, null);
-  assert.equal(r.location, null);
-  assert.equal(r.preferredAppointment, null);
-  assert.equal(r.email, null);
+  assert.equal("secret" in r, false);
+  assert.equal("secret" in r.fields, false);
 });
 
-test("rejects analyses that don't match the schema", () => {
-  assert.equal(validateAnalysis(null), null);
-  assert.equal(validateAnalysis([]), null);
-  assert.equal(validateAnalysis({ ...analysis, priority: "Urgent" }), null);
-  assert.equal(validateAnalysis({ ...analysis, isServiceRequest: "yes" }), null);
-  assert.equal(validateAnalysis({ ...analysis, phone: 6125550147 }), null);
-  assert.equal(validateAnalysis({ ...analysis, summary: "" }), null);
-  assert.equal(validateAnalysis({ ...analysis, replyBody: "x".repeat(3001) }), null);
-  assert.equal(validateAnalysis({ ...analysis, problem: "x".repeat(201) }), null);
-  const missing: Record<string, unknown> = { ...analysis };
-  delete missing.summary;
-  assert.equal(validateAnalysis(missing), null);
+test("validates drafts", () => {
+  assert.deepEqual(validateDraft({ subject: " Hi ", body: "Hello\nthere" }), { subject: "Hi", body: "Hello\nthere", source: "ai" });
+  assert.equal(validateDraft({ subject: "", body: "x" }), null);
+  assert.equal(validateDraft({ subject: "x", body: "x".repeat(3001) }), null);
+  assert.equal(validateDraft("nope"), null);
 });
 
-test("JSON schema requires every property and allows no extras", () => {
-  assert.deepEqual([...analysisJsonSchema.required].sort(), Object.keys(analysisJsonSchema.properties).sort());
-  assert.equal(analysisJsonSchema.additionalProperties, false);
+test("every industry yields a strict schema from one configuration shape", () => {
+  for (const i of industries) {
+    const s = extractionJsonSchema(i);
+    assert.equal(s.additionalProperties, false);
+    assert.deepEqual([...s.required].sort(), Object.keys(s.properties).sort());
+    assert.deepEqual(s.properties.fields.required.sort(), i.fields.map((f) => f.key).sort());
+    assert.equal(s.properties.fields.additionalProperties, false);
+    assert.ok(i.categories.some((c) => c.id === "other"), `${i.id} needs a catch-all category`);
+  }
 });

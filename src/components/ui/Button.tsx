@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ComponentProps, ReactNode } from "react";
+import { booking } from "@/content/site";
 import { Icon } from "./Icon";
 
 type Variant = "primary" | "secondary" | "ghost";
@@ -32,6 +33,16 @@ type ButtonLinkProps = Omit<ComponentProps<typeof Link>, "className"> & {
   arrow?: boolean;
   children: ReactNode;
 };
+
+/** The consultation button. Booking opens in a new tab so the page stays where it was. */
+export function BookingLink({ size = "lg", label = booking.label, ...props }: { size?: Size; label?: string; className?: string; variant?: Variant }) {
+  return (
+    <ButtonLink href={booking.href} size={size} arrow {...(booking.external ? { target: "_blank", rel: "noopener noreferrer" } : {})} {...props}>
+      {label}
+      {booking.external ? <span className="sr-only"> (opens in a new tab)</span> : null}
+    </ButtonLink>
+  );
+}
 
 export function ButtonLink({ variant, size, className, arrow, children, ...props }: ButtonLinkProps) {
   return (

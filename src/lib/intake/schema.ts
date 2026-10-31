@@ -1,20 +1,18 @@
-// Shared by the /demo server action (source of truth) and the client demo
-// (limits and early feedback). Keep this file dependency-free so it can be
-// unit-tested with plain Node.
+// Shared by the /api/demo/process route (source of truth) and the client demo
+// (limits and early feedback). Keep this file free of runtime dependencies so
+// it can be unit-tested with plain Node.
+
+import { getIndustry, type IndustryConfig } from "./industries.ts";
 
 export const intakeLimits = {
-  name: 100,
-  email: 254,
-  subject: 200,
-  body: 3000,
-  bodyMin: 20,
+  message: 3000,
+  messageMin: 20,
+  /** Largest request body the route will read, in bytes (allows for JSON escaping). */
+  requestBytes: 16_384,
 } as const;
 
-export type IntakeEmail = { fromName: string; fromEmail: string; subject: string; body: string };
-
-export type IntakeValidation = { ok: true; data: IntakeEmail } | { ok: false; message: string };
-
-const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
+export type IntakeRequest = { industry: IndustryConfig; message: string };
+export type IntakeValidation = { ok: true; data: IntakeRequest } | { ok: false; message: string };
 
 function clean(value: unknown, multiline = false): string {
   if (typeof value !== "string") return "";
@@ -24,126 +22,141 @@ function clean(value: unknown, multiline = false): string {
   return v.trim();
 }
 
-export function validateIntakeEmail(input: Record<string, unknown>): IntakeValidation {
-  const data = {
-    fromName: clean(input.fromName),
-    fromEmail: clean(input.fromEmail).toLowerCase(),
-    subject: clean(input.subject),
-    body: clean(input.body, true),
-  };
-  if (!data.fromName || data.fromName.length > intakeLimits.name) return { ok: false, message: "The sender name is missing or too long." };
-  if (data.fromEmail.length > intakeLimits.email || !EMAIL_RE.test(data.fromEmail)) return { ok: false, message: "The sender email address isn't valid." };
-  if (data.subject.length > intakeLimits.subject) return { ok: false, message: `Please keep the subject under ${intakeLimits.subject} characters.` };
-  if (data.body.length < intakeLimits.bodyMin) return { ok: false, message: "Please write a little more in the email body so there's something to analyze." };
-  if (data.body.length > intakeLimits.body) return { ok: false, message: `Please keep the email body under ${intakeLimits.body} characters.` };
-  return { ok: true, data };
+export function validateIntakeRequest(input: unknown): IntakeValidation {
+  const r = typeof input === "object" && input !== null ? (input as Record<string, unknown>) : {};
+  const industry = getIndustry(r.industry);
+  if (!industry) return { ok: false, message: "Please choose one of the listed industries." };
+  const message = clean(r.message, true);
+  if (message.length < intakeLimits.messageMin) return { ok: false, message: "Please write a little more so there's something to process." };
+  if (message.length > intakeLimits.message) return { ok: false, message: `Please keep the inquiry under ${intakeLimits.message} characters.` };
+  return { ok: true, data: { industry, message } };
 }
 
 // ---------------------------------------------------------------------------
-// AI analysis result
+// Stage 2: extraction
 // ---------------------------------------------------------------------------
 
-export const priorities = ["Low", "Normal", "High", "Emergency"] as const;
-export type Priority = (typeof priorities)[number];
+export const signals = ["safety_risk", "active_damage", "service_outage", "vulnerable_people", "stated_deadline"] as const;
+export type Signal = (typeof signals)[number];
 
 /** `null` means the customer didn't provide it; the UI shows "Not provided". */
-export type IntakeAnalysis = {
-  isServiceRequest: boolean;
-  customerName: string | null;
-  email: string | null;
-  phone: string | null;
-  location: string | null;
-  serviceType: string | null;
-  problem: string | null;
-  preferredAppointment: string | null;
-  priority: Priority;
+export type Extraction = {
+  is_customer_inquiry: boolean;
+  request_type: string;
   summary: string;
-  replySubject: string;
-  replyBody: string;
+  signals: Signal[];
+  fields: Record<string, string | null>;
 };
 
-const nullableString = { anyOf: [{ type: "string" }, { type: "null" }] };
+const nullableString = { type: ["string", "null"] };
 
 /** JSON Schema sent to the model as a structured-output format. */
-export const analysisJsonSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: [
-    "isServiceRequest",
-    "customerName",
-    "email",
-    "phone",
-    "location",
-    "serviceType",
-    "problem",
-    "preferredAppointment",
-    "priority",
-    "summary",
-    "replySubject",
-    "replyBody",
-  ],
-  properties: {
-    isServiceRequest: { type: "boolean" },
-    customerName: nullableString,
-    email: nullableString,
-    phone: nullableString,
-    location: nullableString,
-    serviceType: nullableString,
-    problem: nullableString,
-    preferredAppointment: nullableString,
-    priority: { type: "string", enum: [...priorities] },
-    summary: { type: "string" },
-    replySubject: { type: "string" },
-    replyBody: { type: "string" },
-  },
-} as const;
-
-const fieldLimits = { short: 200, summary: 800, replySubject: 200, replyBody: 3000 } as const;
-
-function shortField(value: unknown): string | null | undefined {
-  if (value === null) return null;
-  if (typeof value !== "string") return undefined;
-  const v = clean(value);
-  if (v.length > fieldLimits.short) return undefined;
-  // Treat placeholder strings as missing so the UI stays honest.
-  return v === "" || /^(n\/?a|none|unknown|not (provided|specified|mentioned))\.?$/i.test(v) ? null : v;
+export function extractionJsonSchema(industry: IndustryConfig) {
+  const keys = industry.fields.map((f) => f.key);
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["is_customer_inquiry", "request_type", "summary", "signals", "fields"],
+    properties: {
+      is_customer_inquiry: { type: "boolean" },
+      request_type: { type: "string", enum: industry.categories.map((c) => c.id) },
+      summary: { type: "string" },
+      signals: { type: "array", items: { type: "string", enum: [...signals] } },
+      fields: {
+        type: "object",
+        additionalProperties: false,
+        required: keys,
+        properties: Object.fromEntries(keys.map((k) => [k, nullableString])),
+      },
+    },
+  };
 }
 
-function text(value: unknown, max: number, multiline = false): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const v = clean(value, multiline);
-  return v && v.length <= max ? v : undefined;
-}
+const fieldMax = 200;
+const summaryMax = 800;
 
-/** Validates the model's JSON before anything reaches the browser. Returns null on any mismatch. */
-export function validateAnalysis(raw: unknown): IntakeAnalysis | null {
+/** Validates the model's JSON before it's used. Returns null on any mismatch. */
+export function validateExtraction(raw: unknown, industry: IndustryConfig): Extraction | null {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
-  if (typeof r.isServiceRequest !== "boolean") return null;
-  if (!(priorities as readonly unknown[]).includes(r.priority)) return null;
+  if (typeof r.is_customer_inquiry !== "boolean") return null;
+  if (!industry.categories.some((c) => c.id === r.request_type)) return null;
+  if (!Array.isArray(r.signals) || !r.signals.every((s) => (signals as readonly unknown[]).includes(s))) return null;
+  const summary = clean(r.summary);
+  if (!summary || summary.length > summaryMax) return null;
+  if (typeof r.fields !== "object" || r.fields === null) return null;
 
-  const short = {
-    customerName: shortField(r.customerName),
-    email: shortField(r.email),
-    phone: shortField(r.phone),
-    location: shortField(r.location),
-    serviceType: shortField(r.serviceType),
-    problem: shortField(r.problem),
-    preferredAppointment: shortField(r.preferredAppointment),
-  };
-  if (Object.values(short).some((v) => v === undefined)) return null;
-
-  const summary = text(r.summary, fieldLimits.summary);
-  const replySubject = text(r.replySubject, fieldLimits.replySubject);
-  const replyBody = text(r.replyBody, fieldLimits.replyBody, true);
-  if (!summary || !replySubject || !replyBody) return null;
-
-  return {
-    isServiceRequest: r.isServiceRequest,
-    ...(short as { [K in keyof typeof short]: string | null }),
-    priority: r.priority as Priority,
-    summary,
-    replySubject,
-    replyBody,
-  };
+  const rawFields = r.fields as Record<string, unknown>;
+  const fields: Record<string, string | null> = {};
+  for (const { key } of industry.fields) {
+    const value = rawFields[key];
+    if (value === null) fields[key] = null;
+    else if (typeof value !== "string") return null;
+    else {
+      const v = clean(value);
+      if (v.length > fieldMax) return null;
+      // Treat placeholder strings as missing so the UI stays honest.
+      fields[key] = v === "" || /^(n\/?a|none|unknown|not (provided|specified|mentioned))\.?$/i.test(v) ? null : v;
+    }
+  }
+  return { is_customer_inquiry: r.is_customer_inquiry, request_type: r.request_type as string, summary, signals: [...new Set(r.signals as Signal[])], fields };
 }
+
+// ---------------------------------------------------------------------------
+// Stage 3: deterministic classification
+// ---------------------------------------------------------------------------
+
+export const priorities = ["Routine Review", "Review Soon", "Immediate Review"] as const;
+export type Priority = (typeof priorities)[number];
+
+export type Classification = {
+  category: string;
+  department: string;
+  /** Proposed by rules for an employee to confirm; never a safety assessment. */
+  priority: Priority;
+  reasons: string[];
+  missing: string[];
+  /** Questions the draft may ask. */
+  questions: string[];
+  next_action: string;
+};
+
+// ---------------------------------------------------------------------------
+// Stage 4: response draft
+// ---------------------------------------------------------------------------
+
+export type Draft = { subject: string; body: string; source: "ai" | "template" };
+
+export const draftJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["subject", "body"],
+  properties: { subject: { type: "string" }, body: { type: "string" } },
+};
+
+export const draftLimits = { subject: 200, body: 3000 } as const;
+
+export function validateDraft(raw: unknown): Draft | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  const subject = clean(r.subject);
+  const body = clean(r.body, true);
+  if (!subject || subject.length > draftLimits.subject || !body || body.length > draftLimits.body) return null;
+  return { subject, body, source: "ai" };
+}
+
+// ---------------------------------------------------------------------------
+// Streamed response (NDJSON, one event per line)
+// ---------------------------------------------------------------------------
+
+export type Stage = "received" | "extraction" | "classification" | "draft";
+
+export type ErrorCode = "timeout" | "busy" | "unavailable" | "refusal" | "invalid_output" | "draft_rejected" | "budget" | "aborted";
+
+export type IntakeEvent =
+  | { type: "received" }
+  | { type: "extraction"; data: Extraction }
+  | { type: "classification"; data: Classification }
+  | { type: "draft"; data: Draft }
+  | { type: "complete"; processing_mode: "live_ai" }
+  | { type: "error"; stage: Stage; code: ErrorCode; message: string; retryable: boolean };

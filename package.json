@@ -9,11 +9,12 @@
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "node --test --experimental-strip-types src/lib/contact/*.test.ts src/lib/intake/*.test.ts",
+    "eval:demo": "node scripts/demo-eval.mjs",
     "check": "npm run lint && npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "1.3.0",
     "next": "16.4.3",
+    "openai": "7.47.0",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },

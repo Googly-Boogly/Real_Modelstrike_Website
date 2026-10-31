@@ -1,104 +1,60 @@
-// Copy and fictional sample data for the /demo AI customer intake page.
-// No real customer or company.
-
-import type { IntakeAnalysis, IntakeEmail } from "@/lib/intake/schema";
+// Copy for the /demo page. Fictional examples live in src/lib/intake/industries.ts.
 
 export const intakeDemoCopy = {
-  title: "ModelStrike AI Customer Intake Demo",
-  subtitle: "See how AI can turn incoming customer emails into organized service requests and ready-to-review responses.",
-  disclaimer: "This demonstration uses fictional customer information. No emails are sent, and no real service appointments are created.",
-  approved: "Response approved! In a real implementation, this could be sent through your company's email system after employee approval.",
-  cta: {
+  meta: {
+    title: "Interactive AI Automation Demo",
+    description: "Experience AI business automation in action. See how ModelStrike organizes customer inquiries, extracts information, and prepares responses for human approval.",
+  },
+  hero: {
+    eyebrow: "Interactive Demonstration",
+    title: "See AI Automation in Action",
+    subtitle: "Watch how AI can turn incoming customer requests into organized information, prioritized tasks, and ready-to-review responses—in seconds.",
+    body: "Choose an industry, try a sample customer inquiry, and see how ModelStrike could automate the repetitive work your team handles every day.",
+    primary: "Try the Interactive Demo",
+    trust: "No account required. No emails sent. Demo data only.",
+  },
+  customNotice: "Please use fictional examples. Do not enter confidential, financial, medical, or other sensitive information.",
+  previewLabel: "Example Preview — Not Live AI Processing",
+  previewExplainer: "This is a precomputed sample for the original example message. No AI model processed anything just now.",
+  offlineNotice: "Live AI isn't turned on right now, so you can view a precomputed example. Your own text can't be processed until it's back.",
+  review: {
+    approved: "Approved for demonstration. In a production system, an authorized workflow could now send this response.",
+    rejected: "Rejected for demonstration. Nothing would be sent, and the request would stay with your team to handle directly.",
+    revision: "Revision requested for demonstration. In a production system, the draft would go back for changes before anyone could approve it.",
+    footnote: "These controls work only inside this demonstration. No email is sent and no record is created.",
+  },
+  afterDemo: {
     title: "Want This Automation for Your Business?",
-    body: "ModelStrike builds custom AI automations that help businesses handle customer inquiries, organize information, and reduce repetitive administrative work.",
-    primary: { label: "Request a Free Consultation", href: "/contact" },
-    secondary: { label: "Back to Home", href: "/" },
+    body: "ModelStrike builds custom AI automation that works with your existing processes and software. Tell us what your team spends time doing manually, and we'll explore whether automation could help.",
+    secondary: { label: "Tell Us What You Want to Automate", href: "/contact" },
   },
-};
-
-export type SampleEmail = IntakeEmail & { id: string; label: string; receivedAt: string };
-
-export const sampleEmails: SampleEmail[] = [
-  {
-    id: "ac",
-    label: "AC not cooling",
-    receivedAt: "Today, 9:14 AM",
-    fromName: "Sarah Mitchell",
-    fromEmail: "sarah@example.com",
-    subject: "Air Conditioner Not Working",
-    body: `Hi,
-
-My air conditioner stopped cooling yesterday, and the house is getting pretty warm.
-
-I live in Minneapolis and was wondering if someone could come out Wednesday afternoon to take a look.
-
-My phone number is 612-555-0147.
-
-Please let me know if that's possible.
-
-Thanks,
-Sarah Mitchell`,
+  benefits: {
+    title: "Less Administrative Work. More Time for Your Business.",
+    items: [
+      { icon: "database", title: "Organize Customer Inquiries", body: "Turn incoming requests into structured information without manually copying every detail." },
+      { icon: "refresh", title: "Reduce Repetitive Work", body: "Prepare routine classifications, summaries, and response drafts." },
+      { icon: "check", title: "Improve Response Consistency", body: "Help employees respond using relevant information and approved business procedures." },
+      { icon: "shield", title: "Keep Humans in Control", body: "Employees can review important decisions and communications before anything is sent." },
+    ],
   },
-  {
-    id: "furnace",
-    label: "No heat, urgent",
-    receivedAt: "Today, 6:02 AM",
-    fromName: "David Okafor",
-    fromEmail: "d.okafor@example.net",
-    subject: "Furnace stopped — no heat",
-    body: `Hello,
-
-Our furnace quit sometime overnight and it's 54 degrees inside. We have a newborn at home so this is pretty urgent.
-
-We're at 418 Elm Street in St. Paul. Any time today works — the sooner the better. You can reach me at 651-555-0193.
-
-David`,
+  comparison: {
+    eyebrow: "Before and after",
+    title: "How the Workflow Changes",
+    note: "An illustration of a typical intake process. The demo above isn't connected to any real business's systems.",
+    before: {
+      title: "Before ModelStrike",
+      intro: "A customer sends an email. An employee must:",
+      steps: ["Open the message.", "Read the inquiry.", "Identify the customer's needs.", "Copy information into another system.", "Decide who should handle the request.", "Write a response.", "Send the response."],
+    },
+    after: {
+      title: "With ModelStrike",
+      intro: "The automation:",
+      steps: ["Reads the inquiry.", "Extracts structured information.", "Suggests categorization and routing.", "Prepares a response.", "Presents the results for employee approval."],
+      outro: "The employee reviews and completes the process.",
+    },
   },
-  {
-    id: "vague",
-    label: "Incomplete inquiry",
-    receivedAt: "Yesterday, 4:37 PM",
-    fromName: "Priya Shah",
-    fromEmail: "priya.shah@example.org",
-    subject: "Question",
-    body: `Hi there,
-
-Do you guys do maintenance on heat pumps? Ours is making a rattling noise. Not sure if it's serious.
-
-Priya`,
+  finalCta: {
+    title: "See What Your Team Could Stop Doing by Hand",
+    body: "Bring one repetitive process to a conversation. We'll tell you honestly whether automation is a practical fit.",
   },
-];
-
-/**
- * Prerecorded result for the first sample, used only when no AI provider is
- * configured. The UI labels it as simulated and locks the email so it can't
- * be mistaken for an analysis of edited text.
- */
-export const simulatedAnalysis: IntakeAnalysis = {
-  isServiceRequest: true,
-  customerName: "Sarah Mitchell",
-  email: "sarah@example.com",
-  phone: "612-555-0147",
-  location: "Minneapolis",
-  serviceType: "Air Conditioning Repair",
-  problem: "AC stopped cooling",
-  preferredAppointment: "Wednesday afternoon",
-  priority: "Normal",
-  summary:
-    "Sarah Mitchell reports that her air conditioner has stopped cooling. She is requesting a repair appointment on Wednesday afternoon in Minneapolis.",
-  replySubject: "Re: Air Conditioner Not Working",
-  replyBody: `Hi Sarah,
-
-Thank you for reaching out!
-
-I'm sorry to hear that your air conditioner isn't cooling properly.
-
-We've received your request for AC repair and noted that Wednesday afternoon would work best for you.
-
-A member of our team will review availability and follow up to confirm a suitable appointment time.
-
-We appreciate you contacting us and look forward to helping you get your air conditioning working again.
-
-Best regards,
-Customer Service Team`,
-};
+} as const;

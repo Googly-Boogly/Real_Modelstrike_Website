@@ -17,12 +17,14 @@ services:
         CSP_FRAME_SRC: ${CSP_FRAME_SRC:-}
     image: modelstrike-web
     restart: unless-stopped
-    # Runtime secrets (CONTACT_*, RESEND_API_KEY). Never passed as build args.
+    # Runtime secrets (CONTACT_*, RESEND_API_KEY, OPENAI_API_KEY). Never passed as build args.
     env_file:
       - path: .env
         required: false
+    environment:
+      DEMO_BUDGET_FILE: /app/data/demo-budget.json
     # Published on all interfaces. Visitors who hit :3000 directly bypass Caddy,
-    # so they can spoof X-Forwarded-For and dodge the contact-form rate limit —
+    # so they can spoof X-Forwarded-For and dodge the per-IP rate limits —
     # firewall 3000 in production if you don't need it reachable.
     ports:
       - "3000:3000"
@@ -30,6 +32,9 @@ services:
     tmpfs:
       - /tmp
       - /app/.next/cache:mode=1777
+    volumes:
+      # The demo's daily spend, so a restart can't reset the budget.
+      - demo_data:/app/data
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -60,5 +65,6 @@ services:
       - caddy_config:/config
 
 volumes:
+  demo_data:
   caddy_data:
   caddy_config:

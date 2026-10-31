@@ -65,3 +65,13 @@ export const cta = {
   navLabel: "Book a Consultation",
   href: "/contact",
 } as const;
+
+/** Length of the Cal.com event when its slug states one, e.g. `modelstrike/30min`. */
+const callMinutes = site.calLink.match(/(\d+)min\b/)?.[1];
+
+/** Straight to the existing Cal.com event when configured, otherwise the contact page. */
+export const booking = {
+  href: site.calLink ? `https://cal.com/${site.calLink}` : cta.href,
+  external: Boolean(site.calLink),
+  label: callMinutes ? `Book a Free ${callMinutes}-Minute Consultation` : cta.primaryLabel,
+};
