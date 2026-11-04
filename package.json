@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "node --test --experimental-strip-types src/lib/contact/*.test.ts src/lib/intake/*.test.ts",
+    "test": "node --test --experimental-strip-types src/lib/contact/*.test.ts src/lib/intake/*.test.ts src/lib/demo/*.test.ts src/lib/onboarding/*.test.ts",
     "eval:demo": "node scripts/demo-eval.mjs",
     "check": "npm run lint && npm run typecheck && npm test && npm run build"
   },

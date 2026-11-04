@@ -28,6 +28,29 @@ const csp = [
   .map((directive) => directive.replace(/\s+/g, " ").trim())
   .join("; ");
 
+// The private onboarding flow gets a stricter policy: same-origin only, with no Cal.com or
+// extra origins, so no third-party script or frame can run alongside customer answers.
+const onboardingCsp = [
+  "default-src 'self'",
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "font-src 'self'",
+  `connect-src 'self'${isDev ? " ws: wss:" : ""}`,
+  "frame-src 'none'",
+  "frame-ancestors 'none'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+].join("; ");
+
+// Invitation tokens may arrive in the URL: never send it on as a Referer, never cache, never index.
+const privateHeaders = [
+  { key: "Referrer-Policy", value: "no-referrer" },
+  { key: "Cache-Control", value: "no-store, max-age=0" },
+  { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" },
+];
+
 const securityHeaders = [
   { key: "Content-Security-Policy", value: csp },
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
@@ -43,7 +66,12 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    // Later entries override earlier ones for the same header key.
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      { source: "/onboarding", headers: [...privateHeaders, { key: "Content-Security-Policy", value: onboardingCsp }] },
+      { source: "/api/customer-onboarding/:path*", headers: privateHeaders },
+    ];
   },
   async redirects() {
     // Legacy URL from the previous security-testing site, so old links don't 404.

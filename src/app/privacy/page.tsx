@@ -53,7 +53,7 @@ const sections: { heading: string; body: ReactNode }[] = [
           sensitive information.
         </p>
         <p>
-          When you run the live demo, the text of the example is sent to our AI provider, OpenAI, to generate the results, and the results are returned to your browser. We don&apos;t
+          When you run the live demo, the text of the example (including any optional name, email address or subject you type into a custom request) is sent to our AI provider, OpenAI, to generate the results, and the results are returned to your browser. We don&apos;t
           save the text or the results to a database, include them in our logs, send them by email, or add you to any marketing or sales list. Using the demo isn&apos;t consent to
           marketing. Our server keeps only aggregate usage facts, such as which industry was chosen, whether a run succeeded, how long it took, and its cost.
         </p>

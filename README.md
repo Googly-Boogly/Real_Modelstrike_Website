@@ -11,7 +11,7 @@ npm install
 npm run dev        # http://localhost:3000
 npm run lint
 npm run typecheck  # next typegen && tsc --noEmit
-npm test           # unit tests for the contact form and demo engine (node:test)
+npm test           # unit tests: contact form, demo engine, workflow, ROI, tour (node:test)
 npm run eval:demo  # accuracy checks against a running server; spends real API credit, see below
 npm run check      # all of the above + production build
 ```
@@ -21,10 +21,11 @@ npm run check      # all of the above + production build
 | Path | Purpose |
 | --- | --- |
 | `src/content/` | All marketing copy as typed data (`home`, `services`, `industries`, `process`, `about`, `demo`, `intake-demo`, `intake-previews`, `site`). Edit copy here. |
-| `src/app/` | Routes: `/`, `/services`, `/industries`, `/how-it-works`, `/about`, `/demo`, `/contact`, `/privacy`, `POST /api/demo/process`, plus `sitemap.xml`, `robots.txt`, OG image, icon. |
+| `src/app/` | Routes: `/`, `/services`, `/industries`, `/how-it-works`, `/about`, `/demo`, `/contact`, `/privacy`, `POST /api/demo/process`, `POST /api/demo/draft`, plus `sitemap.xml`, `robots.txt`, OG image, icon. |
 | `src/components/home/` | `WorkflowVisual` (CSS-only hero diagram) and `AutomationDemo` (interactive, simulated intake demo — fictional data, no AI calls). |
 | `src/components/ui/` | `Button`, `Section`/`Container`, `SectionHeader`, `Icon` (inline SVG set). |
-| `src/components/demo/` | `IntakeDemo` (state and layout), `useIntakeRun` (streaming client), `DemoPanels` (workflow stages). |
+| `src/components/demo/` | `DemoExperience` (layout, mobile steps), dashboard panels, `GuidedDemo`, `ROICalculator`, `ConsultationCTA`, `useDemoWorkflow` + `demoApi` (API client). |
+| `src/lib/demo/` | Pure, tested demo logic: workflow state machine, ROI formulas, guided-tour steps. |
 | `src/lib/contact/` | Contact form validation, rate limiting and delivery providers. |
 | `src/lib/intake/` | The `/demo` engine: industry configs, validation, business rules, grounding checks, prompts, pipeline, budget, and the server-only model call. |
 
@@ -73,37 +74,53 @@ CONTACT_WEBHOOK_SECRET=...             # optional; signs the body: X-ModelStrike
 
 The rate limiter keys on `X-Forwarded-For` / `X-Real-IP`, so run the app behind a reverse proxy that sets (and overwrites) those headers.
 
-## AI customer intake demo (`/demo`)
+## AI automation demo (`/demo`)
+
+Demo 2.0: an interactive automation dashboard for three industries (HVAC, accounting, property management), a business value calculator, a guided tour, and the consultation CTA.
 
 ```text
-IntakeDemo → POST /api/demo/process (streams one NDJSON event per finished stage)
-  1. Received        origin, size, validation, budget, concurrency and rate-limit checks
+DemoExperience (client)
+  IndustrySelector → resets the workflow and swaps inbox, terminology, record fields, categories and reply sign-off
+  CustomerInbox / CustomerMessage / CustomRequestForm      left column
+  AIProcessingPanel (5 stages)                             middle column
+  CustomerRecord ("Demo CRM — Simulated Record")           right column
+  ResponseApproval (edit / approve / reject / regenerate)  below; all actions simulated
+  GuidedDemo (6-step spotlight tour; ← → Esc)
+ROICalculator, ConsultationCTA                             further down the page
+
+POST /api/demo/process   streams one NDJSON event per finished stage
+  1. Read request    origin, size, validation, budget, concurrency and rate-limit checks
   2. Extraction      model call → schema check → grounding check (grounding.ts)
-  3. Classification  deterministic rules, no model call (rules.ts)
-  4. Draft           model call → schema check → draft guard, one corrected retry (grounding.ts)
-  5. Human review    browser only: approve, edit, reject or request revision
+  3. Classification  deterministic, per-industry rules, no model call (rules.ts)
+  4. Record          built in the browser from stages 2–3 (simulated CRM)
+  5. Draft           model call → schema check → draft guard, one corrected retry (grounding.ts)
+POST /api/demo/draft     "Regenerate": re-validates and re-grounds the submitted extraction, then one more guarded draft
 ```
 
-- **Adding an industry:** add an entry to `src/lib/intake/industries.ts`. The prompt, output schema, rules and UI derive from it. Add a preview in `src/content/intake-previews.ts` if it has a sample; a test requires one.
-- **What's AI and what's code:** the model extracts fields, summarizes and drafts. Priority, routing, missing information and next action are decided by `rules.ts`. A safety keyword match raises priority even if the model missed it. Priority is labelled a proposal, never a safety assessment.
+- **State:** `src/lib/demo/workflow.ts` is a pure reducer (`idle → request_selected → processing → review_ready → approved/rejected`, plus `error`). Every run has an id; events from a superseded run (reset, industry switch, reprocessing) are ignored. One run at a time; each inbox item keeps its own result. `useDemoWorkflow` adds the fetches and cancellation.
+- **Adding an industry:** add an entry to `src/lib/intake/industries.ts` (fields, categories, priority rules, terms, signature, ≥3 inbox samples) and a precomputed extraction per sample in `src/content/intake-previews.ts`. Tests require both.
+- **Sender fields:** optional name, email and subject are validated and composed into an email-style text (`composeInquiry`), so they are grounded like anything else the customer wrote.
+- **What's AI and what's code:** the model extracts fields, summarizes and drafts. Priority, routing, missing information, escalation and next action are decided by `rules.ts` using each industry's `priority` rules (e.g. HVAC: outage + vulnerable person → Immediate Review; accounting: a stated deadline → Review Soon). A safety keyword always forces Immediate Review.
 - **Grounding:** a verbatim field, email or phone the message doesn't contain becomes "Not provided". Drafts with invented prices, appointments, promises, contact details, links or placeholders get one corrected retry and are otherwise not shown.
 - **Provider:** OpenAI `gpt-6-luna` through the Responses API with strict structured outputs and `store: false`, in `ai.ts`, the only file that knows the provider.
 - **Prompt injection:** the model gets no tools. Each call is text in, schema-checked JSON out. Visitor text sits in a tag with a random per-request name, and the drafting call sees only the validated record. Nothing in this path can send email, fetch URLs or reach the contact form, a CRM or the sales system.
-- **Live vs. preview:** with `OPENAI_API_KEY` set, results are always from the model. Without it, or after a failure, visitors can choose a precomputed sample labelled "Example Preview — Not Live AI Processing". It is always for the original sample text, and is never substituted silently.
-- **Nothing is sent:** the review buttons only change on-page state.
+- **Live vs. simulated:** with `OPENAI_API_KEY` set, results are always from the model. Without it, or after a failure, sample requests can show a precomputed extraction (real rules, deterministic template reply from `templates.ts`) labelled "Simulated example — not live AI processing". Custom messages are never simulated, and regeneration is off in simulated mode.
+- **Nothing is sent:** approve, reject and edit only change on-page state; the record is labelled as a simulated Demo CRM record.
+- **Booking:** CTAs use `booking` from `src/content/site.ts` (`NEXT_PUBLIC_CAL_LINK`, falling back to `/contact`).
 
 ### Cost and abuse controls
 
 | Control | Default | Where |
 | --- | --- | --- |
 | Daily spending ceiling (reserve worst case before each call, settle to actual usage, survives restarts) | `DEMO_DAILY_BUDGET_USD=5` | `budget.ts`, `pipeline.ts` |
-| Per-IP limit | `DEMO_IP_LIMIT=8` per 10 min | `runtime.ts` |
+| Per-IP limit (processing and regenerating both count) | `DEMO_IP_LIMIT=8` per 10 min | `runtime.ts` |
+| Regenerations per request, in the browser | 3 | `workflow.ts` |
 | Site-wide limit | `DEMO_HOURLY_LIMIT=200` per hour | `runtime.ts` |
 | Runs in flight, one per IP; excess refused, not queued | `DEMO_MAX_CONCURRENCY=4` | `budget.ts` |
 | Input | 3,000 characters, 16 KB body | `schema.ts` |
 | Output | 4,000 / 3,000 tokens per call | `pipeline.ts` |
 | Time | 25 s per call, one SDK retry, 60 s per run; cancelled if the visitor leaves | `ai.ts`, `route.ts` |
-| Same-origin JSON POST only | always | `route.ts` |
+| Same-origin JSON POST only | always | `http.ts` |
 
 Limits are per instance. `pricing` in `pipeline.ts` holds the `gpt-6-luna` list prices; update it if the model or its prices change. Set a project budget in the OpenAI dashboard as a backstop.
 
@@ -127,9 +144,15 @@ OPENAI_API_KEY=... DEMO_IP_LIMIT=100 npm run dev
 npm run eval:demo                       # defaults to http://localhost:3000
 ```
 
+## Customer onboarding (`/onboarding`)
+
+The private questionnaire that paying customers open from their welcome email. It has a four-step form, a review screen, and email-code verification. It isn't in the navigation or sitemap, and it's `noindex`. The browser talks only to `/api/customer-onboarding/*`. Those routes call the Sales Swarm server-to-server with an HMAC-signed request, and the session lives in a `__Host-` HttpOnly cookie. It's disabled until `ONBOARDING_API_URL` and `ONBOARDING_API_SECRET` are set. For local work, run `ONBOARDING_MOCK=true npm run dev` and open `http://localhost:3000/onboarding#token=mock_valid_invitation_0001`.
+
+The API contract the Swarm must implement, security model, mock links, deployment steps and welcome-email link format are in [`docs/ONBOARDING.md`](docs/ONBOARDING.md).
+
 ## Environment
 
-See `.env.example`. `NEXT_PUBLIC_*` values are baked in at build time; `CONTACT_*`, `RESEND_API_KEY`, `OPENAI_API_KEY` and `DEMO_*` are runtime values read only on the server. Never put a secret in a `NEXT_PUBLIC_*` variable.
+See `.env.example`. `NEXT_PUBLIC_*` values are baked in at build time; `CONTACT_*`, `RESEND_API_KEY`, `OPENAI_API_KEY`, `DEMO_*` and `ONBOARDING_*` are runtime values read only on the server. Never put a secret in a `NEXT_PUBLIC_*` variable.
 
 ## Deployment
 

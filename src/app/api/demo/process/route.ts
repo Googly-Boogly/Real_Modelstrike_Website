@@ -1,69 +1,18 @@
-import { isAiConfigured } from "@/lib/intake/ai";
+import { guard } from "@/lib/intake/http";
 import { runIntake, type RunStats } from "@/lib/intake/pipeline";
-import { admit, budgetedModel, spentToday } from "@/lib/intake/runtime";
-import { intakeLimits, validateIntakeRequest } from "@/lib/intake/schema";
+import { budgetedModel, spentToday } from "@/lib/intake/runtime";
+import { validateIntakeRequest } from "@/lib/intake/schema";
 
 // A generous ceiling on top of each model call's own timeout.
 const RUN_DEADLINE_MS = 60_000;
 
-function deny(status: number, code: string, message: string, retryAfterSeconds?: number) {
-  console.warn(`[demo] denied reason=${code}`);
-  return Response.json({ success: false, code, message }, { status, headers: retryAfterSeconds ? { "Retry-After": String(retryAfterSeconds) } : undefined });
-}
-
-/** Browsers always send Origin on a POST; requiring it keeps other sites and casual scripts off the paid API. */
-function isSameOrigin(request: Request) {
-  const origin = request.headers.get("origin");
-  if (!origin) return false;
-  try {
-    return new URL(origin).host === (request.headers.get("x-forwarded-host") ?? request.headers.get("host"));
-  } catch {
-    return false;
-  }
-}
-
-function clientIp(request: Request) {
-  // Trust only the first hop; the reverse proxy in front of the app must set these.
-  return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip")?.trim() || "unknown";
-}
-
-/** Reads at most `limit` bytes, however large the body or whatever Content-Length claims. */
-async function readBody(request: Request, limit: number) {
-  if (!request.body) return "";
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  const reader = request.body.getReader();
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > limit) {
-      await reader.cancel();
-      return null;
-    }
-    chunks.push(value);
-  }
-  return Buffer.concat(chunks).toString("utf8");
-}
-
 export async function POST(request: Request) {
-  if (!isAiConfigured()) return deny(503, "not_configured", "Live AI processing isn't enabled on this site right now.");
-  if (!isSameOrigin(request)) return deny(403, "forbidden", "This request isn't allowed.");
-  if (!request.headers.get("content-type")?.startsWith("application/json")) return deny(415, "bad_request", "This request isn't allowed.");
-
-  const body = await readBody(request, intakeLimits.requestBytes);
-  if (body === null) return deny(413, "too_large", `Please keep the inquiry under ${intakeLimits.message} characters.`);
-  let json: unknown;
-  try {
-    json = JSON.parse(body);
-  } catch {
-    return deny(400, "bad_request", "This request couldn't be read.");
-  }
-  const validation = validateIntakeRequest(json);
-  if (!validation.ok) return deny(400, "invalid", validation.message);
-
-  const admission = admit(clientIp(request));
-  if (!admission.ok) return deny(admission.status, admission.code, admission.message, admission.retryAfterSeconds);
+  const guarded = await guard(request, (json) => {
+    const v = validateIntakeRequest(json);
+    return v.ok ? { ok: true, value: v.data } : v;
+  });
+  if (guarded instanceof Response) return guarded;
+  const { value: data, admission } = guarded;
 
   // Stops the provider call, and its cost, when the visitor cancels or leaves.
   const abort = new AbortController();
@@ -71,7 +20,7 @@ export async function POST(request: Request) {
   const spend = { usd: 0 };
   const stats: RunStats = { dropped: 0 };
   const startedAt = Date.now();
-  const events = runIntake(validation.data, { callModel: budgetedModel(spend), signal, stats });
+  const events = runIntake(data, { callModel: budgetedModel(spend), signal, stats });
   const encoder = new TextEncoder();
 
   let finished = false;
@@ -81,7 +30,7 @@ export async function POST(request: Request) {
     finished = true;
     admission.release();
     // Aggregate facts for monitoring abuse and funnel health. Never the message, IP or results.
-    console.info(`[demo] run outcome=${outcome} industry=${validation.data.industry.id} ms=${Date.now() - startedAt} usd=${spend.usd.toFixed(4)} spent_today=${spentToday().toFixed(4)} dropped_fields=${stats.dropped}`);
+    console.info(`[demo] run outcome=${outcome} industry=${data.industry.id} ms=${Date.now() - startedAt} usd=${spend.usd.toFixed(4)} spent_today=${spentToday().toFixed(4)} dropped_fields=${stats.dropped}`);
   };
 
   const stream = new ReadableStream<Uint8Array>({

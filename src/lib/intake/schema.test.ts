@@ -1,12 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { getIndustry, industries } from "./industries.ts";
-import { extractionJsonSchema, validateDraft, validateExtraction, validateIntakeRequest } from "./schema.ts";
+import { composeInquiry, extractionJsonSchema, validateDraftRequest, validateDraft, validateExtraction, validateIntakeRequest } from "./schema.ts";
 
 const hvac = getIndustry("hvac")!;
 const valid = {
   is_customer_inquiry: true,
-  request_type: "repair",
+  request_type: "cooling_repair",
   summary: "AC stopped cooling.",
   signals: ["service_outage"],
   fields: { customer_name: "Sarah Johnson", email: null, phone: null, service_requested: "AC Repair", problem: "Not cooling", location: "Minneapolis", preferred_time: null },
@@ -77,4 +77,27 @@ test("every industry yields a strict schema from one configuration shape", () =>
     assert.equal(s.properties.fields.additionalProperties, false);
     assert.ok(i.categories.some((c) => c.id === "other"), `${i.id} needs a catch-all category`);
   }
+});
+
+test("optional sender details are validated and composed into the processed text", () => {
+  const r = validateIntakeRequest({ industry: "hvac", message: "My AC stopped cooling this morning.", customer_name: " Sarah  Johnson ", customer_email: "sarah@example.com", subject: "AC down" });
+  assert.ok(r.ok);
+  assert.equal(r.data.message, "From: Sarah Johnson <sarah@example.com>\nSubject: AC down\n\nMy AC stopped cooling this morning.");
+  assert.equal(composeInquiry({ email: "a@example.com", body: "x" }), "From: a@example.com\n\nx");
+  assert.equal(composeInquiry({ body: "  just the body " }), "just the body");
+
+  const base = { industry: "hvac", message: "My AC stopped cooling this morning." };
+  assert.equal(validateIntakeRequest({ ...base, customer_email: "not-an-email" }).ok, false);
+  assert.equal(validateIntakeRequest({ ...base, customer_email: "" }).ok, true);
+  assert.equal(validateIntakeRequest({ ...base, customer_name: "x".repeat(81) }).ok, false);
+  assert.equal(validateIntakeRequest({ ...base, subject: "x".repeat(151) }).ok, false);
+  assert.equal(validateIntakeRequest({ ...base, customer_name: { $ne: 1 } }).ok, false);
+});
+
+test("a regenerate request needs a valid extraction", () => {
+  const base = { industry: "hvac", message: "My AC stopped cooling this morning." };
+  assert.equal(validateDraftRequest({ ...base, extraction: valid }).ok, true);
+  assert.equal(validateDraftRequest({ ...base }).ok, false);
+  assert.equal(validateDraftRequest({ ...base, extraction: { ...valid, request_type: "hack" } }).ok, false);
+  assert.equal(validateDraftRequest({ ...base, extraction: { ...valid, fields: { ...valid.fields, phone: 5 } } }).ok, false);
 });

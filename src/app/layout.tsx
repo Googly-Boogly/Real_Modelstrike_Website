@@ -1,12 +1,16 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Manrope } from "next/font/google";
 import { Footer } from "@/components/layout/Footer";
+import { HideOn } from "@/components/layout/HideOn";
 import { Navbar } from "@/components/layout/Navbar";
 import { site } from "@/content/site";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
 const manrope = Manrope({ subsets: ["latin"], variable: "--font-manrope", display: "swap", weight: ["600", "700", "800"] });
+
+/** Pages that use their own minimal chrome instead of the marketing navbar and footer. */
+const PRIVATE_FLOWS = ["/onboarding"];
 
 export const metadata: Metadata = {
   metadataBase: new URL(site.url),
@@ -33,11 +37,15 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         >
           Skip to content
         </a>
-        <Navbar />
+        <HideOn prefixes={PRIVATE_FLOWS}>
+          <Navbar />
+        </HideOn>
         <main id="main" tabIndex={-1} className="outline-none">
           {children}
         </main>
-        <Footer />
+        <HideOn prefixes={PRIVATE_FLOWS}>
+          <Footer />
+        </HideOn>
       </body>
     </html>
   );

@@ -7,22 +7,28 @@ import { previews } from "../../content/intake-previews.ts";
 import { createBudget, createGate, fileBudgetStore } from "./budget.ts";
 import { checkDraft, groundExtraction } from "./grounding.ts";
 import { getIndustry, industries } from "./industries.ts";
-import { maxRunCostUsd, ModelError, runIntake, withBudget, type CallModel, type ModelRequest } from "./pipeline.ts";
+import { maxRunCostUsd, ModelError, regenerateDraft, runIntake, withBudget, type CallModel, type ModelRequest } from "./pipeline.ts";
 import { draftPrompt, extractionPrompt } from "./prompts.ts";
 import { classify } from "./rules.ts";
-import type { Extraction, IntakeEvent } from "./schema.ts";
+import { composeInquiry, type Extraction, type IntakeEvent } from "./schema.ts";
+import { templateDraft } from "./templates.ts";
 
 const hvac = getIndustry("hvac")!;
 const accounting = getIndustry("accounting")!;
 const property = getIndustry("property")!;
-const hvacMessage = hvac.sample!.message;
+const sampleText = (id: string) => {
+  const sample = industries.flatMap((i) => i.samples).find((x) => x.id === id)!;
+  return composeInquiry(sample);
+};
+const hvacMessage = sampleText("hvac-ac");
+const accountingMessage = sampleText("acct-onboarding");
 
 const extraction = (over: Partial<Extraction> = {}, fields: Record<string, string | null> = {}): Extraction => ({
   is_customer_inquiry: true,
-  request_type: "repair",
+  request_type: "cooling_repair",
   summary: "AC stopped cooling.",
   signals: ["service_outage"],
-  fields: { customer_name: "Sarah Johnson", email: "sarah@example.com", phone: null, service_requested: "Air Conditioning Repair", problem: "AC not cooling", location: "Minneapolis", preferred_time: "tomorrow afternoon", ...fields },
+  fields: { customer_name: "Sarah Johnson", email: "sarah@example.com", phone: null, service_requested: "Air Conditioning Repair", problem: "AC not cooling", location: null, preferred_time: "tomorrow", ...fields },
   ...over,
 });
 const goodDraft = { subject: "Your AC request", body: "Hi Sarah,\n\nOur team will review your request and follow up. What's the best phone number to reach you?\n\nBest regards,\nCustomer Service Team" };
@@ -57,14 +63,14 @@ test("clears values the message doesn't support", () => {
 });
 
 test("keeps values the message supports, across formatting and number words", () => {
-  const { extraction: e, dropped } = groundExtraction(extraction({}, { email: "SARAH@example.com", preferred_time: "Tomorrow Afternoon" }), hvac, hvacMessage);
+  const { extraction: e, dropped } = groundExtraction(extraction({}, { email: "SARAH@example.com", preferred_time: "Tomorrow" }), hvac, hvacMessage);
   assert.equal(e.fields.email, "SARAH@example.com");
   assert.equal(dropped, 0);
 
   const phone = groundExtraction(extraction({}, { phone: "(612) 555-0147" }), hvac, "Call me at 612.555.0147 about my AC please");
   assert.equal(phone.extraction.fields.phone, "(612) 555-0147");
 
-  const size = groundExtraction({ ...extraction(), fields: { company_size: "8 employees" } }, accounting, accounting.sample!.message);
+  const size = groundExtraction({ ...extraction(), fields: { company_size: "8 employees" } }, accounting, accountingMessage);
   assert.equal(size.extraction.fields.company_size, "8 employees");
 });
 
@@ -98,7 +104,7 @@ test("catches invented prices, appointments, contact details and records", () =>
   assert.equal(bad("Email help@acme-hvac.com.").length, 1);
   assert.equal(bad("Visit https://acme.example today.").length, 1);
   assert.equal(bad("Thanks, [Your Name]").length, 1);
-  assert.equal(checkDraft({ subject: "Re", body: "We reviewed your records and all looks fine." }, accounting.sample!.message).length, 1);
+  assert.equal(checkDraft({ subject: "Re", body: "We reviewed your records and all looks fine." }, accountingMessage).length, 1);
 });
 
 test("allows details the customer wrote themselves", () => {
@@ -108,22 +114,50 @@ test("allows details the customer wrote themselves", () => {
 
 // --- Business rules --------------------------------------------------------
 
-test("HVAC sample: review soon, routed, phone requested", () => {
+test("HVAC sample: review soon, routed, address and phone requested", () => {
   const c = classify(hvac, extraction(), hvacMessage);
-  assert.equal(c.category, "HVAC Service Request");
+  assert.equal(c.category, "Air Conditioning Repair");
   assert.equal(c.priority, "Review Soon");
-  assert.equal(c.department, "Customer Service");
-  assert.equal(c.next_action, "Contact the customer to confirm availability.");
-  assert.deepEqual(c.missing, ["Phone"]);
+  assert.equal(c.department, "Service Dispatch");
+  assert.equal(c.next_action, "Call the customer to confirm details and offer available times.");
+  assert.deepEqual(c.missing, ["Service address", "Phone"]);
   assert.match(c.questions.join(), /phone/);
+  assert.deepEqual(c.escalation, { required: false, reason: null });
 });
 
 test("missing name and contact details are reported", () => {
-  const c = classify(accounting, previews.accounting.extraction, accounting.sample!.message);
-  assert.deepEqual(c.missing, ["Customer", "Contact details"]);
-  assert.equal(c.department, "New Business Team");
-  assert.equal(c.priority, "Routine Review");
+  const c = classify(property, previews["prop-incomplete"], sampleText("prop-incomplete"));
+  assert.deepEqual(c.missing, ["Name", "Property", "Unit", "Entry permission"]);
   assert.ok(c.questions.length <= 3);
+  const none = classify(accounting, { ...previews["acct-onboarding"], fields: { ...previews["acct-onboarding"].fields, customer_name: null, email: null } }, "Looking for bookkeeping help for my business");
+  assert.deepEqual(none.missing, ["Name", "Contact details"]);
+  assert.equal(none.next_action, "Hold the reply until contact details are found, then follow up.");
+});
+
+test("priority rules are configured per industry", () => {
+  // HVAC: an outage with a vulnerable person is urgent on its own.
+  const furnace = classify(hvac, previews["hvac-furnace"], sampleText("hvac-furnace"));
+  assert.equal(furnace.priority, "Immediate Review");
+  assert.equal(furnace.escalation.required, true);
+  // Accounting: a stated deadline matters; an "outage" signal does not.
+  assert.equal(classify(accounting, previews["acct-missing"], sampleText("acct-missing")).priority, "Review Soon");
+  assert.equal(classify(accounting, extraction({ request_type: "bookkeeping", signals: ["service_outage"] }), "Our payroll export stopped working").priority, "Routine Review");
+  // Expected outcomes for every sample, so a config change can't silently move them.
+  const expected: Record<string, string> = {
+    "hvac-ac": "Review Soon",
+    "hvac-maintenance": "Routine Review",
+    "hvac-furnace": "Immediate Review",
+    "hvac-emergency": "Immediate Review",
+    "acct-missing": "Review Soon",
+    "acct-onboarding": "Routine Review",
+    "acct-bookkeeping": "Routine Review",
+    "acct-documents": "Routine Review",
+    "prop-leak": "Review Soon",
+    "prop-heat": "Immediate Review",
+    "prop-routine": "Routine Review",
+    "prop-incomplete": "Review Soon",
+  };
+  for (const i of industries) for (const s of i.samples) assert.equal(classify(i, previews[s.id], composeInquiry(s)).priority, expected[s.id], s.id);
 });
 
 test("urgency: model signal or keyword raises priority; a keyword can't be talked down", () => {
@@ -131,7 +165,7 @@ test("urgency: model signal or keyword raises priority; a keyword can't be talke
   const keyword = classify(property, extraction({ request_type: "maintenance", signals: [] }), "I think there is a gas leak in the basement of my building");
   assert.equal(keyword.priority, "Immediate Review");
   assert.match(keyword.reasons[0], /safety/);
-  assert.equal(classify(property, previews.property.extraction, property.sample!.message).priority, "Review Soon");
+  assert.equal(classify(property, previews["prop-leak"], sampleText("prop-leak")).priority, "Review Soon");
   assert.equal(classify(hvac, extraction({ signals: [] }), "Do you service heat pumps at all?").priority, "Routine Review");
 });
 
@@ -295,16 +329,68 @@ test("gate bounds concurrency and refuses duplicates", () => {
   assert.deepEqual(gate.acquire("d"), { refused: "busy" });
 });
 
+// --- Regenerate ------------------------------------------------------------
+
+test("regenerating asks for new wording and runs the same draft guard", async () => {
+  const { call, calls } = fakeModel({ subject: "x", body: "We've scheduled you for 2pm." }, goodDraft);
+  const event = await regenerateDraft({ industry: hvac, message: hvacMessage }, extraction(), { callModel: call, signal: new AbortController().signal });
+  assert.equal(event.type, "draft");
+  assert.equal(calls.length, 2);
+  assert.match(calls[0].system, /another version/);
+  assert.match(calls[1].user, /Remove any promise/);
+});
+
+test("a tampered extraction can't add details to a regenerated draft", async () => {
+  const { call, calls } = fakeModel(goodDraft);
+  await regenerateDraft({ industry: hvac, message: hvacMessage }, extraction({}, { phone: "612-555-0100", customer_name: "Admin" }), { callModel: call, signal: new AbortController().signal });
+  assert.equal(calls[0].user.includes("612-555-0100"), false);
+  assert.equal(calls[0].user.includes("Admin"), false);
+});
+
+test("regenerate failures are typed errors at the draft stage", async () => {
+  const event = await regenerateDraft({ industry: hvac, message: hvacMessage }, extraction(), { callModel: fakeModel(new ModelError("budget")).call, signal: new AbortController().signal });
+  assert.ok(event.type === "error" && event.stage === "draft" && event.code === "budget" && !event.retryable);
+});
+
 // --- Previews --------------------------------------------------------------
 
-test("precomputed previews pass the same checks as live output", () => {
-  for (const i of industries.filter((x) => x.sample)) {
-    const p = previews[i.id];
-    assert.ok(p, `${i.id} needs a preview`);
-    const message = i.sample!.message;
-    assert.deepEqual(Object.keys(p.extraction.fields).sort(), i.fields.map((f) => f.key).sort());
-    assert.equal(groundExtraction(p.extraction, i, message).dropped, 0, i.id);
-    assert.deepEqual(checkDraft(p.draft, message), [], i.id);
-    assert.ok(classify(i, p.extraction, message).category);
+test("every industry has at least three inbox samples, each with a preview", () => {
+  assert.deepEqual(industries.map((i) => i.id), ["hvac", "accounting", "property"]);
+  const ids = industries.flatMap((i) => i.samples.map((s) => s.id));
+  assert.equal(new Set(ids).size, ids.length, "sample ids are unique");
+  for (const i of industries) {
+    assert.ok(i.samples.length >= 3, i.id);
+    assert.equal(i.terms.workflow.length, 6, i.id);
+    for (const s of i.samples) assert.ok(previews[s.id], `${s.id} needs a preview`);
   }
+});
+
+// --- Previews --------------------------------------------------------------
+
+test("precomputed previews and template replies pass the same checks as live output", () => {
+  for (const i of industries) {
+    for (const s of i.samples) {
+      const p = previews[s.id];
+      const message = composeInquiry(s);
+      assert.deepEqual(Object.keys(p.fields).sort(), i.fields.map((f) => f.key).sort(), s.id);
+      assert.ok(i.categories.some((c) => c.id === p.request_type), s.id);
+      assert.equal(groundExtraction(p, i, message).dropped, 0, s.id);
+      const c = classify(i, p, message);
+      const draft = templateDraft(i, p, c);
+      assert.deepEqual(checkDraft(draft, message), [], s.id);
+      assert.equal(draft.source, "template");
+      assert.ok(draft.body.endsWith(i.signature), s.id);
+    }
+  }
+});
+
+test("template replies greet by first name and ask for what's missing", () => {
+  const c = classify(hvac, previews["hvac-ac"], hvacMessage);
+  const d = templateDraft(hvac, previews["hvac-ac"], c);
+  assert.ok(d.body.startsWith("Hi Sarah,"));
+  assert.match(d.body, /service address and the best phone number/);
+  const anon = templateDraft(property, previews["prop-incomplete"], classify(property, previews["prop-incomplete"], sampleText("prop-incomplete")));
+  assert.ok(anon.body.startsWith("Hello,"));
+  const urgent = templateDraft(hvac, previews["hvac-emergency"], classify(hvac, previews["hvac-emergency"], sampleText("hvac-emergency")));
+  assert.match(urgent.body, /emergency services/);
 });

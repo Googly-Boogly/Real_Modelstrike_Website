@@ -25,6 +25,7 @@ export function classify(industry: IndustryConfig, extraction: Extraction, messa
       missing: [],
       questions: [],
       next_action: "An employee should glance at this and decide whether it needs a reply.",
+      escalation: { required: false, reason: null },
     };
   }
 
@@ -33,9 +34,13 @@ export function classify(industry: IndustryConfig, extraction: Extraction, messa
   const keywordSafety = SAFETY_TERMS.test(message);
   if (keywordSafety && !extraction.signals.includes("safety_risk")) reasons.unshift(signalReasons.safety_risk);
 
+  // Industry-specific rules: e.g. a furnace outage with a newborn at home is
+  // urgent for HVAC, while a stated deadline is what matters for accounting.
+  const has = (s: Signal) => extraction.signals.includes(s);
+  const rules = industry.priority;
   let priority: Priority = "Routine Review";
-  if (extraction.signals.includes("safety_risk") || keywordSafety) priority = "Immediate Review";
-  else if (extraction.signals.length > 0) priority = "Review Soon";
+  if (keywordSafety || rules.immediate.some((group) => group.every(has))) priority = "Immediate Review";
+  else if (rules.soon.some(has)) priority = "Review Soon";
   if (reasons.length === 0) reasons.push("No urgent details were found in the message.");
 
   const { fields } = extraction;
@@ -70,5 +75,9 @@ export function classify(industry: IndustryConfig, extraction: Extraction, messa
     missing,
     questions: [...questions, ...(industry.standingQuestions ?? [])].slice(0, 3),
     next_action,
+    escalation:
+      priority === "Immediate Review"
+        ? { required: true, reason: keywordSafety || has("safety_risk") ? "Possible safety concern: a person should review this before any reply." : "Urgent combination of details: a person should review this right away." }
+        : { required: false, reason: null },
   };
 }

@@ -11,6 +11,12 @@ export const intakeLimits = {
   requestBytes: 16_384,
 } as const;
 
+export const senderLimits = { name: 80, email: 254, subject: 150 } as const;
+
+/** What the visitor submits. Only `body` is required; the rest is optional sender metadata. */
+export type InquiryInput = { name?: string | null; email?: string | null; subject?: string | null; body: string };
+
+/** `message` is the full text the model reads and every grounding check runs against. */
 export type IntakeRequest = { industry: IndustryConfig; message: string };
 export type IntakeValidation = { ok: true; data: IntakeRequest } | { ok: false; message: string };
 
@@ -22,14 +28,42 @@ function clean(value: unknown, multiline = false): string {
   return v.trim();
 }
 
+const EMAIL_FORMAT = /^[^\s@<>()]+@[^\s@<>()]+\.[^\s@<>()]{2,}$/;
+
+/**
+ * Builds the email-style text that is processed, so the sender's name and
+ * address are grounded exactly like anything else the customer wrote.
+ * Used by the server and by the browser (to show the same text).
+ */
+export function composeInquiry({ name, email, subject, body }: InquiryInput): string {
+  const n = clean(name);
+  const e = clean(email);
+  const s = clean(subject);
+  const from = n && e ? `${n} <${e}>` : n || e;
+  const headers = [from ? `From: ${from}` : "", s ? `Subject: ${s}` : ""].filter(Boolean).join("\n");
+  const text = clean(body, true);
+  return headers ? `${headers}\n\n${text}` : text;
+}
+
 export function validateIntakeRequest(input: unknown): IntakeValidation {
   const r = typeof input === "object" && input !== null ? (input as Record<string, unknown>) : {};
   const industry = getIndustry(r.industry);
   if (!industry) return { ok: false, message: "Please choose one of the listed industries." };
-  const message = clean(r.message, true);
-  if (message.length < intakeLimits.messageMin) return { ok: false, message: "Please write a little more so there's something to process." };
-  if (message.length > intakeLimits.message) return { ok: false, message: `Please keep the inquiry under ${intakeLimits.message} characters.` };
-  return { ok: true, data: { industry, message } };
+  const body = clean(r.message, true);
+  if (body.length < intakeLimits.messageMin) return { ok: false, message: "Please write a little more so there's something to process." };
+  if (body.length > intakeLimits.message) return { ok: false, message: `Please keep the inquiry under ${intakeLimits.message} characters.` };
+
+  for (const key of ["customer_name", "customer_email", "subject"] as const) {
+    if (r[key] !== undefined && r[key] !== null && typeof r[key] !== "string") return { ok: false, message: "This request couldn't be read." };
+  }
+  const name = clean(r.customer_name);
+  const email = clean(r.customer_email);
+  const subject = clean(r.subject);
+  if (name.length > senderLimits.name) return { ok: false, message: `Please keep the name under ${senderLimits.name} characters.` };
+  if (subject.length > senderLimits.subject) return { ok: false, message: `Please keep the subject under ${senderLimits.subject} characters.` };
+  if (email && (email.length > senderLimits.email || !EMAIL_FORMAT.test(email))) return { ok: false, message: "Please enter a valid email address, or leave it blank." };
+
+  return { ok: true, data: { industry, message: composeInquiry({ name, email, subject, body }) } };
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +153,8 @@ export type Classification = {
   /** Questions the draft may ask. */
   questions: string[];
   next_action: string;
+  /** Whether a person should look at this before anything else happens. */
+  escalation: { required: boolean; reason: string | null };
 };
 
 // ---------------------------------------------------------------------------
@@ -148,6 +184,16 @@ export function validateDraft(raw: unknown): Draft | null {
 // ---------------------------------------------------------------------------
 // Streamed response (NDJSON, one event per line)
 // ---------------------------------------------------------------------------
+
+/** Regenerate: the request plus the extraction the browser already holds. Re-validated and re-grounded on the server. */
+export function validateDraftRequest(input: unknown): { ok: true; data: IntakeRequest; extraction: Extraction } | { ok: false; message: string } {
+  const request = validateIntakeRequest(input);
+  if (!request.ok) return request;
+  const r = input as Record<string, unknown>;
+  const extraction = validateExtraction(r.extraction, request.data.industry);
+  if (!extraction) return { ok: false, message: "This request couldn't be read." };
+  return { ok: true, data: request.data, extraction };
+}
 
 export type Stage = "received" | "extraction" | "classification" | "draft";
 

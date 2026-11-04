@@ -73,11 +73,16 @@ async function extract({ industry, message }: IntakeRequest, callModel: CallMode
   throw new ModelError("invalid_output");
 }
 
-async function writeDraft(args: { request: IntakeRequest; extraction: Extraction; classification: ReturnType<typeof classify> }, callModel: CallModel, nonce: string, signal: AbortSignal): Promise<Draft> {
-  const { request, extraction, classification } = args;
+async function writeDraft(
+  args: { request: IntakeRequest; extraction: Extraction; classification: ReturnType<typeof classify>; variation?: boolean },
+  callModel: CallModel,
+  nonce: string,
+  signal: AbortSignal,
+): Promise<Draft> {
+  const { request, extraction, classification, variation = false } = args;
   let corrections: string[] = [];
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const prompt = draftPrompt(request.industry, extraction, classification, nonce, corrections);
+    const prompt = draftPrompt(request.industry, extraction, classification, nonce, corrections, variation);
     const { json } = await callModel({ ...prompt, schema: draftJsonSchema, maxTokens: tokenLimits.draft }, signal);
     const draft = validateDraft(json);
     if (!draft) {
@@ -91,11 +96,11 @@ async function writeDraft(args: { request: IntakeRequest; extraction: Extraction
 }
 
 /** Sent without a model call when the message isn't a customer inquiry. */
-const notAnInquiryReply: Draft = {
+const notAnInquiryReply = (signature: string): Draft => ({
   subject: "Thanks for getting in touch",
-  body: "Hello,\n\nThanks for your message. We weren't sure how we can help. Could you tell us a little more about what you need?\n\nBest regards,\nCustomer Service Team",
+  body: `Hello,\n\nThanks for your message. We weren't sure how we can help. Could you tell us a little more about what you need?\n\nBest regards,\n${signature}`,
   source: "template",
-};
+});
 
 export type RunStats = { dropped: number };
 
@@ -118,12 +123,30 @@ export async function* runIntake(request: IntakeRequest, deps: { callModel: Call
     yield { type: "classification", data: classification };
 
     stage = "draft";
-    const draft = extraction.is_customer_inquiry ? await writeDraft({ request, extraction, classification }, callModel, nonce, signal) : notAnInquiryReply;
+    const draft = extraction.is_customer_inquiry ? await writeDraft({ request, extraction, classification }, callModel, nonce, signal) : notAnInquiryReply(request.industry.signature);
     yield { type: "draft", data: draft };
 
     yield { type: "complete", processing_mode: "live_ai" };
   } catch (err) {
     const code = err instanceof ModelError ? err.code : signal.aborted ? "aborted" : "unavailable";
     yield failure(stage, code);
+  }
+}
+
+/**
+ * Writes another draft for a record the browser already holds. The extraction
+ * is re-grounded against the message here, so a tampered one can't add
+ * details the customer never wrote. Same draft guard, same budget.
+ */
+export async function regenerateDraft(request: IntakeRequest, submitted: Extraction, deps: { callModel: CallModel; signal: AbortSignal; nonce?: string }): Promise<IntakeEvent> {
+  const nonce = deps.nonce ?? crypto.randomUUID().replaceAll("-", "");
+  const { extraction } = groundExtraction(submitted, request.industry, request.message);
+  const classification = classify(request.industry, extraction, request.message);
+  if (!extraction.is_customer_inquiry) return { type: "draft", data: notAnInquiryReply(request.industry.signature) };
+  try {
+    return { type: "draft", data: await writeDraft({ request, extraction, classification, variation: true }, deps.callModel, nonce, deps.signal) };
+  } catch (err) {
+    const code = err instanceof ModelError ? err.code : deps.signal.aborted ? "aborted" : "unavailable";
+    return failure("draft", code);
   }
 }
