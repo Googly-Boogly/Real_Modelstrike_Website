@@ -11,7 +11,7 @@ export const metadata = pageMetadata({
   path: "/privacy",
 });
 
-// Update this date whenever the policy content changes.
+// Update this date whenever the policy content changes..
 const LAST_UPDATED = "November 5, 2026";
 
 const sections: { heading: string; body: ReactNode }[] = [
@@ -219,3 +219,4 @@ export default function PrivacyPage() {
     </Container>
   );
 }
+
