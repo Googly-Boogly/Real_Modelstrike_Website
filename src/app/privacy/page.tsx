@@ -12,7 +12,7 @@ export const metadata = pageMetadata({
 });
 
 // Update this date whenever the policy content changes.
-const LAST_UPDATED = "October 31, 2026";
+const LAST_UPDATED = "November 5, 2026";
 
 const sections: { heading: string; body: ReactNode }[] = [
   {
@@ -62,11 +62,40 @@ const sections: { heading: string; body: ReactNode }[] = [
     ),
   },
   {
+    heading: "Onboarding questionnaire (customers only)",
+    body: (
+      <>
+        <p>
+          When you become a ModelStrike customer, we email your company&apos;s authorized contact a private link to an onboarding questionnaire. The page isn&apos;t public
+          or listed in search engines. Before showing your project details, we may email a one-time code to confirm it&apos;s you.
+        </p>
+        <p>The questionnaire asks for:</p>
+        <ul>
+          <li>Your name, job title, and preferred email address</li>
+          <li>Your industry</li>
+          <li>The process you want automated and how it works today, including the challenges, software, data sources, and daily volume involved</li>
+          <li>The actions you want automated, and who approves them (their role and email address)</li>
+          <li>How you&apos;ll measure success, and anything else you choose to tell us</li>
+        </ul>
+        <p>
+          We use your answers only to plan and deliver your project. They&apos;re sent from our website to our own customer management system, where only ModelStrike
+          staff can see them. Our AI agents also read them to help prepare your project, which means the answers are sent to our AI provider, OpenAI. Your answers are
+          never shown on the website, sold, or used for marketing, and they never change your contract, scope, or pricing.
+        </p>
+        <p>
+          While you fill in the questionnaire, the website sets one strictly necessary session cookie so it knows you&apos;ve opened a valid link. It isn&apos;t used
+          for tracking and expires within a few hours.
+        </p>
+        <p>Please don&apos;t include passwords, API keys, payment details, or sensitive personal information about your customers in your answers.</p>
+      </>
+    ),
+  },
+  {
     heading: "Information collected automatically",
     body: (
       <>
         <p>
-          To protect the contact form and the demo from spam and abuse, the website temporarily uses your IP address to limit how many requests can be sent in a short period.
+          To protect the contact form, the demo, and the onboarding questionnaire from spam and abuse, the website temporarily uses your IP address to limit how many requests can be sent in a short period.
           This is held in server memory only and is not stored with your submission.
         </p>
         <p>
@@ -87,6 +116,7 @@ const sections: { heading: string; body: ReactNode }[] = [
       <ul>
         <li>To respond to your consultation request and communicate with you about it</li>
         <li>To understand your business needs and prepare for a conversation or proposal</li>
+        <li>For customers, to plan and deliver your project using your onboarding questionnaire answers</li>
         <li>To keep the website secure and prevent abuse</li>
       </ul>
     ),
@@ -103,10 +133,13 @@ const sections: { heading: string; body: ReactNode }[] = [
             <strong className="text-fg">Resend</strong> — email delivery, used to send your form submission to us and a confirmation email to you
           </li>
           <li>
+            <strong className="text-fg">Zoho Mail</strong> — email delivery, used to send customers their onboarding invitation and verification codes
+          </li>
+          <li>
             <strong className="text-fg">Cal.com</strong> — scheduling, used when you book a consultation call
           </li>
           <li>
-            <strong className="text-fg">OpenAI</strong> — AI processing, used only for the text you submit to the live demo, which OpenAI handles under its own API terms and
+            <strong className="text-fg">OpenAI</strong> — AI processing, used for the text you submit to the live demo and for customers&apos; onboarding questionnaire answers, which OpenAI handles under its own API terms and
             privacy policy
           </li>
           <li>Our website hosting provider, which serves the site and may keep standard technical logs</li>
@@ -121,10 +154,13 @@ const sections: { heading: string; body: ReactNode }[] = [
   {
     heading: "How long we keep it",
     body: (
-      <p>
-        We keep consultation requests for as long as needed to respond to you and manage any resulting business relationship, and then delete them when they&apos;re no
-        longer needed for those purposes or for legal and record-keeping obligations.
-      </p>
+      <>
+        <p>
+          We keep consultation requests for as long as needed to respond to you and manage any resulting business relationship, and then delete them when they&apos;re no
+          longer needed for those purposes or for legal and record-keeping obligations.
+        </p>
+        <p>We keep onboarding questionnaire answers indefinitely as part of your project records, unless you ask us to delete them.</p>
+      </>
     ),
   },
   {
